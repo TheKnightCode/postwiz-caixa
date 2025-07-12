@@ -1,12 +1,14 @@
 #include <WiFi.h>
 #include <HTTPClient.h>
 #include <Arduino_JSON.h>
+#include <LiquidCrystal.h>
 
 //Terminais
 const int pinReset = 34; //Botao reset
 const int pinSensor = 35; //Sensor IR
 const int pinBuzz = 18; //Buzzer
 const int pinRS = 32, pinEN = 33, pinD4 = 25, pinD5 = 26, pinD6 = 27, pinD7 = 14; //Visor
+LiquidCrystal lcd(pinRS, pinEN, pinD4, pinD5, pinD6, pinD7);
 
 //Tipo detectado
 const int MAIL = 0; //Carta
@@ -144,6 +146,15 @@ int detection() {
   }
 }
 
+void displayUpdate(int mail, int spam) {
+  lcd.clear();
+  lcd.print("Cartas: ");
+  lcd.print(mail);
+  lcd.setCursor(0, 1);
+  lcd.print("Spam:   ");
+  lcd.print(spam);
+}
+
 //Botao de reset
 void reset() {
   countMail = 0;
@@ -160,6 +171,10 @@ void setup() {
   pinMode(pinSensor, INPUT);
   pinMode(pinBuzz, OUTPUT);
 
+  //Inicializa o visor
+  lcd.begin(16, 2);
+  lcd.print("PostWiz");
+  
   //Conecta Wi-Fi
   WiFi.begin(ssid, password);
   Serial.println("Conectando");
@@ -173,9 +188,12 @@ void setup() {
 
   //Baixa a contagem atual
   download();
+
+  displayUpdate(countMail, countSpam);
 }
 
 void loop() {
+  
   //Detecta carta
   int sensorSignal = analogRead(pinSensor);
   if (sensorSignal < thresholdSpam) {
@@ -188,8 +206,10 @@ void loop() {
         countSpam++;
         upload(countMail, countSpam);
         break;
-    }
     
+    }
+
+    displayUpdate(countMail, countSpam);
     Serial.print("Cartas: ");
     Serial.print(countMail);
     Serial.print(" - Spam: ");
@@ -200,6 +220,7 @@ void loop() {
   while(digitalRead(pinReset) == HIGH) {
     if(digitalRead(pinReset) == LOW) { //Quando o botao reset eh solto
       reset();
+      displayUpdate(countMail, countSpam);
       delay(100); //Delay para debouncing
     }
   }
