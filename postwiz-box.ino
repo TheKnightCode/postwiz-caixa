@@ -6,15 +6,15 @@
 const int pinReset = 34; //Botao reset
 const int pinSensor = 35; //Sensor IR
 const int pinBuzz = 18; //Buzzer
-const int pinRS = 13, pinEN = 27, pinD4 = 26, pinD5 = 25, pinD6 = 33, pinD7 = 32; //Visor
+const int pinRS = 32, pinEN = 33, pinD4 = 25, pinD5 = 26, pinD6 = 27, pinD7 = 14; //Visor
 
 //Tipo detectado
 const int MAIL = 0; //Carta
 const int SPAM = 1; //Spam
 
 //Configuracoes. NAO ESQUECA DE CONFIGURAR
-const char* ssid = "NOME DA REDE WIFI"; //Nome da rede Wi-Fi
-const char* password = "SENHA DA REDE WIFI"; //Senha da rede Wi-Fi
+const char* ssid = "Miranda"; //Nome da rede Wi-Fi
+const char* password = "Meriti!711"; //Senha da rede Wi-Fi
 
 //Aumente em caso de falso-positivo, reduza em caso de falso-negativo
 const int thresholdMail = 1000; //Limiar de detecao da carta. Se o sensor der um valor menor que isso eh detectado como carta.
@@ -71,13 +71,52 @@ String upload(int mail, int spam) { //Argumentos: numero de cartas, numero de sp
     }
 }
 
+//Baixa do servidor a contagem atual e retorna no formato [numero de cartas, numero de spam]
+String download() {
+  if(WiFi.status()== WL_CONNECTED){
+      HTTPClient http;
+      String serverPath = serverName + "/client/status"; //URL do servidor
+
+      http.begin(serverPath.c_str());
+      
+      //Envia requisicao GET
+      int httpResponseCode = http.GET();
+
+      //Resposta da requisicao
+      String payload;
+      if (httpResponseCode>0) {
+        Serial.print("HTTP Response code: ");
+        Serial.println(httpResponseCode);
+        payload = http.getString();
+        Serial.println(payload);
+
+        JSONVar dados = JSON.parse(payload);
+        
+        countMail = dados["mail"];
+        countSpam = dados["spam"];
+
+        return payload;
+      }
+      else {
+        payload = "";
+        Serial.print("Error code: ");
+        Serial.println(httpResponseCode);
+        return payload;
+      }
+      // Free resources
+      http.end();
+    }
+    else {
+      Serial.println("WiFi Disconnected");
+    }
+}
 
 //Detecta cartas
 int detection() {
   unsigned int sampleSum = 0;
   unsigned int sampleCount = 1; //A contagem comeca em 1 para evitar erro de divisao por 0.
 
-  delay(100);
+  delay(300);
   //Enquanto a carta esta sendo colocada, o ESP-32 pega varias amostras do sinal e faz a media.
   while (analogRead(pinSensor) < thresholdSpam) {
       sampleSum += analogRead(pinSensor); //Soma das amostras
@@ -87,6 +126,11 @@ int detection() {
   
   int signalAverage = sampleSum/sampleCount; //Sinal medio
   delay(500);
+
+  //Caso a funcao seja chamada incorretamente, evita deteccao acidental.
+  if (sampleCount == 1) {
+    return -1;
+  }
 
   if (signalAverage < thresholdMail) { //Carta detectada
     Serial.print("MAIL - Signal: ");
@@ -100,6 +144,13 @@ int detection() {
   }
 }
 
+//Botao de reset
+void reset() {
+  countMail = 0;
+  countSpam = 0;
+  upload(countMail, countSpam);
+}
+
 void setup() {
   //Inicializa monitor serial
   Serial.begin(115200); 
@@ -107,6 +158,7 @@ void setup() {
   //Configura terminais
   pinMode(pinReset, INPUT);
   pinMode(pinSensor, INPUT);
+  pinMode(pinBuzz, OUTPUT);
 
   //Conecta Wi-Fi
   WiFi.begin(ssid, password);
@@ -119,12 +171,36 @@ void setup() {
   Serial.print("CONECTADO - Endereco IP: ");
   Serial.println(WiFi.localIP());
 
+  //Baixa a contagem atual
+  download();
 }
 
 void loop() {
+  //Detecta carta
   int sensorSignal = analogRead(pinSensor);
-  //Serial.println(sensorSignal);
   if (sensorSignal < thresholdSpam) {
-   detection();
+    switch (detection()) {
+      case MAIL: //Conta carta
+        countMail++;
+        upload(countMail, countSpam);
+        break;
+      case SPAM: //Conta spam
+        countSpam++;
+        upload(countMail, countSpam);
+        break;
+    }
+    
+    Serial.print("Cartas: ");
+    Serial.print(countMail);
+    Serial.print(" - Spam: ");
+    Serial.println(countSpam);
+  }
+
+  //Detecta reset
+  while(digitalRead(pinReset) == HIGH) {
+    if(digitalRead(pinReset) == LOW) { //Quando o botao reset eh solto
+      reset();
+      delay(100); //Delay para debouncing
+    }
   }
 }
